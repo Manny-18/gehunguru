@@ -1,6 +1,6 @@
 """
 GehunGuru knowledge base (sample data for the project).
-
+dd
 Content is PARAPHRASED from publicly available wheat guidance for the
 North-Western Plains Zone of India (ICAR-IIWBR Karnal, PAU Ludhiana and
 CCS HAU Hisar packages of practices, Kisan Call Centre material). It is a
