@@ -255,6 +255,14 @@ def normalise_chat(data: dict) -> dict:
         out["intent"] = "other"
     if out["confidence"] not in ("high", "medium", "low"):
         out["confidence"] = "medium"
+    # Suspected rust, smut or Karnal bunt must always reach a human: enforced here, not left to the model
+    # (live testing showed the model suspecting yellow rust without setting needs_human).
+    serious = {"KB-10": "yellow rust", "KB-11": "brown rust", "KB-12": "loose smut", "KB-13": "Karnal bunt"}
+    hits = [serious[i] for i in out["sources"] if i in serious]
+    if hits and out["intent"] in ("diseases", "other", "weather") and not out["needs_human"]:
+        out["needs_human"] = True
+        out["handoff_reason"] = (f"Suspected {hits[0]}: please get it confirmed by your KVK or agriculture officer "
+                                 "before buying or spraying any fungicide.")
     if out["confidence"] == "low" and out["intent"] not in ("out_of_scope", "adversarial", "greeting"):
         out["needs_human"] = True
         out["handoff_reason"] = out["handoff_reason"] or "The assistant is not confident about this answer."
