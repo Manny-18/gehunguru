@@ -1,0 +1,20 @@
+[theme]
+base = "light"
+primaryColor = "#2F6B3A"
+backgroundColor = "#F1F4EA"
+secondaryBackgroundColor = "#E4EAD8"
+textColor = "#1D2B20"
+linkColor = "#2E5E86"
+borderColor = "#D3DAC4"
+baseRadius = "10px"
+font = "Mukta:https://fonts.googleapis.com/css2?family=Mukta:wght@400;600;800&display=swap"
+headingFont = "Mukta:https://fonts.googleapis.com/css2?family=Mukta:wght@400;600;800&display=swap"
+
+[theme.sidebar]
+backgroundColor = "#E4EAD8"
+
+[server]
+maxUploadSize = 10
+
+[browser]
+gatherUsageStats = false
