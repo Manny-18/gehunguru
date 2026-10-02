@@ -15,6 +15,7 @@ Reliability design (see project report, Section B5):
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -23,6 +24,8 @@ from pydantic import BaseModel
 
 from .knowledge_base import clean_sources
 from .prompts import INTENTS
+
+log = logging.getLogger("gehunguru")
 
 DEFAULT_MODELS = ["gemini-3.7-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"]
 
@@ -105,6 +108,12 @@ def _extract_json(text: str) -> dict | None:
         return None
 
 
+def _short(e: Exception, limit: int = 140) -> str:
+    """One-line, readable version of an SDK error for the 'why' caption and the server log."""
+    msg = getattr(e, "message", None) or str(e)
+    return " ".join(str(msg).split())[:limit]
+
+
 def _parse_response(resp) -> tuple[dict | None, str | None]:
     """Return (data, problem)."""
     parsed = getattr(resp, "parsed", None)
@@ -161,12 +170,13 @@ def generate(client, models: list[str], system: str, contents: list, schema: typ
                 if code == 400 and use_thinking and tc is not None:
                     use_thinking = False  # model may not support this thinking setting
                     continue
+                log.warning("Gemini %s failed with %s: %s", model, code, _short(e, 500))
                 if code in (401, 403):
-                    attempts.append(f"{model}: API key rejected ({code})")
+                    attempts.append(f"{model}: API key rejected ({code}): {_short(e)}")
                     return LLMResult(False, attempts=attempts, error="The Gemini API key was rejected.",
                                      latency_ms=int((time.time() - t0) * 1000), fatal=True)
                 label = {404: "model not available", 429: "rate limit / quota reached"}.get(code, f"error {code}")
-                attempts.append(f"{model}: {label}")
+                attempts.append(f"{model}: {label}: {_short(e)}")
                 break
             except errors.ServerError as e:
                 code = getattr(e, "code", None)
@@ -174,14 +184,17 @@ def generate(client, models: list[str], system: str, contents: list, schema: typ
                     server_retry_done = True
                     time.sleep(1.5)
                     continue
-                attempts.append(f"{model}: server error {code}")
+                log.warning("Gemini %s server error %s: %s", model, code, _short(e, 500))
+                attempts.append(f"{model}: server error {code}: {_short(e)}")
                 break
             except Exception as e:  # noqa: BLE001 - network error, timeout, SDK bug
-                attempts.append(f"{model}: {type(e).__name__}")
+                log.warning("Gemini %s raised %s: %s", model, type(e).__name__, _short(e, 500))
+                attempts.append(f"{model}: {type(e).__name__}: {_short(e)}")
                 break
 
             data, problem = _parse_response(resp)
             if data is None:
+                log.warning("Gemini %s gave no usable answer: %s", model, problem)
                 attempts.append(f"{model}: {problem}")
                 break
             return LLMResult(True, data=data, model=model, attempts=attempts,
