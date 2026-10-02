@@ -414,3 +414,18 @@ def clean_sources(ids: Iterable[str]) -> list[str]:
         if i in VALID_IDS and i not in out:
             out.append(i)
     return out
+
+
+def select_for(query: str, stage_key: str | None, limit: int = 9) -> list[dict]:
+    """Retrieval for the backup provider, whose free tier has small token limits.
+
+    Order: keyword matches for the question, then entries for the current crop stage, then the
+    helpline and out-of-scope entries (always useful). Gemini gets the whole knowledge base instead.
+    """
+    picked: list[dict] = []
+    for e in search(query, stage_key, k=4) + [e for e in KB if stage_key in e["stages"]] + \
+            [KB_BY_ID["KB-23"], KB_BY_ID["KB-24"]]:
+        if e not in picked:
+            picked.append(e)
+    keep = picked[:limit - 2] + [x for x in picked[-2:] if x not in picked[:limit - 2]]
+    return sorted(keep, key=lambda e: e["id"])
