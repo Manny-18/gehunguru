@@ -291,3 +291,103 @@ def normalise_diagnosis(data: dict) -> dict:
     if out["is_wheat"] and (top != "high" or out["image_quality"] == "poor"):
         out["needs_expert"] = True
     return out
+
+
+# ======================================================================
+# Backup provider: Groq (free tier, OpenAI-compatible API, no SDK needed)
+# Used when Gemini is unavailable, e.g. Google blocks the project (403).
+# ======================================================================
+
+GROQ_URL = "https://api.groq.com/openai/v1"
+GROQ_TEXT_MODELS = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+GROQ_VISION_MODELS = ["meta-llama/llama-4-scout-17b-16e-instruct", "meta-llama/llama-4-maverick-17b-128e-instruct"]
+GROQ_WHISPER = "whisper-large-v3-turbo"
+
+_SKELETONS = {
+    "ChatReply": {
+        "answer": "markdown text for the farmer", "intent": "one of the listed intents",
+        "confidence": "high | medium | low", "sources": ["KB-08"], "needs_human": False,
+        "handoff_reason": "", "follow_up": "", "transcript": "",
+    },
+    "Diagnosis": {
+        "is_wheat": True, "image_quality": "good | fair | poor",
+        "possible_causes": [{"name": "", "likelihood": "high | medium | low", "visible_signs": "", "kb_id": "KB-10"}],
+        "field_checks": [""], "actions": [""], "urgency": "routine | soon | urgent", "needs_expert": True,
+        "summary": "", "sources": ["KB-10"],
+    },
+}
+
+
+def json_instruction(schema: type[BaseModel]) -> str:
+    return ("\n\n## JSON format\nReturn ONLY one JSON object, no markdown fences, with exactly these keys "
+            "(values here are examples of the type):\n" + json.dumps(_SKELETONS[schema.__name__], ensure_ascii=False))
+
+
+def groq_transcribe(api_key: str, wav: bytes, timeout: float = 60) -> tuple[str | None, str | None]:
+    import requests
+
+    try:
+        r = requests.post(f"{GROQ_URL}/audio/transcriptions", headers={"Authorization": f"Bearer {api_key}"},
+                          files={"file": ("question.wav", wav, "audio/wav")},
+                          data={"model": GROQ_WHISPER, "response_format": "json"}, timeout=timeout)
+        if r.status_code != 200:
+            return None, f"{GROQ_WHISPER}: error {r.status_code}: {_short(Exception(r.text))}"
+        return (r.json().get("text") or "").strip(), None
+    except Exception as e:  # noqa: BLE001
+        return None, f"{GROQ_WHISPER}: {type(e).__name__}: {_short(e)}"
+
+
+def groq_generate(api_key: str, models: list[str], system: str, messages: list[dict], schema: type[BaseModel],
+                  temperature: float = 0.2, timeout: float = 60) -> LLMResult:
+    """Same contract as generate(), but over Groq's OpenAI-compatible chat API."""
+    import requests
+
+    t0 = time.time()
+    attempts: list[str] = []
+    full_system = system + json_instruction(schema)
+    for model in models:
+        use_json_mode, server_retry_done = True, False
+        while True:
+            body = {"model": model, "temperature": temperature, "max_completion_tokens": 2500,
+                    "messages": [{"role": "system", "content": full_system}] + messages}
+            if use_json_mode:
+                body["response_format"] = {"type": "json_object"}
+            if model.startswith("openai/gpt-oss"):
+                body["reasoning_effort"] = "low"
+            try:
+                r = requests.post(f"{GROQ_URL}/chat/completions", json=body, timeout=timeout,
+                                  headers={"Authorization": f"Bearer {api_key}"})
+            except Exception as e:  # noqa: BLE001
+                log.warning("Groq %s raised %s: %s", model, type(e).__name__, _short(e, 500))
+                attempts.append(f"groq {model}: {type(e).__name__}: {_short(e)}")
+                break
+            code, text = r.status_code, r.text
+            if code == 200:
+                try:
+                    content = r.json()["choices"][0]["message"].get("content") or ""
+                except Exception:  # noqa: BLE001
+                    content = ""
+                data = _extract_json(content)
+                if data is None:
+                    attempts.append(f"groq {model}: unreadable output")
+                    break
+                return LLMResult(True, data=data, model=f"groq/{model}", attempts=attempts,
+                                 latency_ms=int((time.time() - t0) * 1000))
+            log.warning("Groq %s failed with %s: %s", model, code, _short(Exception(text), 500))
+            if code == 401:
+                attempts.append(f"groq {model}: API key rejected (401)")
+                return LLMResult(False, attempts=attempts, error="The Groq API key was rejected.", fatal=True,
+                                 latency_ms=int((time.time() - t0) * 1000))
+            if code == 400 and use_json_mode and ("json" in text.lower() or "response_format" in text):
+                use_json_mode = False  # model rejected JSON mode or failed to validate: ask in plain text
+                continue
+            if code >= 500 and not server_retry_done:
+                server_retry_done = True
+                time.sleep(1.5)
+                continue
+            label = {404: "model not available", 413: "request too large for free limit",
+                     429: "rate limit / quota reached"}.get(code, f"error {code}")
+            attempts.append(f"groq {model}: {label}: {_short(Exception(text))}")
+            break
+    return LLMResult(False, attempts=attempts, error="All backup models failed.",
+                     latency_ms=int((time.time() - t0) * 1000))
