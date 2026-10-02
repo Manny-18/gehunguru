@@ -268,11 +268,28 @@ def farm_context() -> str:
     return "\n".join(lines)
 
 
+# Alert -> instruction the model must follow. Added after live testing showed the model saying
+# "irrigating today is fine" right before forecast rain, despite the alert.
+BINDING_RULES = {
+    "RAIN_SOON": "Rain is due within 3 days: tell the farmer to WAIT until after the rain before irrigating, "
+                 "top-dressing urea or spraying. Do not say that doing these before the rain is fine.",
+    "HEAVY_RAIN": "Heavy rain is forecast: advise keeping drainage open; no irrigation before it.",
+    "WINDY": "Strong wind is forecast: advise no spraying on windy days.",
+    "RUST_RISK": "Yellow-rust weather: advise scouting leaves this week.",
+    "HEAT_SEVERE": "Severe heat during grain filling: advise a light evening irrigation, not before strong wind.",
+    "HEAT": "Heat during grain filling: advise keeping soil moist with light irrigation.",
+    "FROST": "Frost risk: advise a light evening irrigation before the frosty night.",
+    "TOO_WARM_TO_SOW": "Too warm to sow now: do not advise sowing this week.",
+}
+
+
 def weather_context() -> str:
     if not days:
         return "Weather data unavailable. Do not make weather-based claims."
     alert_lines = "\n".join(f"- [{a.level.upper()}] {a.title}: {a.message}" for a in alerts) or "- none"
-    return weather.summary_for_prompt(days, wx_label) + "\nAlerts:\n" + alert_lines
+    rules = "\n".join(f"- {BINDING_RULES[a.code]}" for a in alerts if a.code in BINDING_RULES) or "- none"
+    return (weather.summary_for_prompt(days, wx_label) + "\nAlerts:\n" + alert_lines
+            + "\nBINDING RULES (must be followed in every answer this week):\n" + rules)
 
 
 def system_prompt(kb_entries: list[dict] | None = None) -> str:
