@@ -46,6 +46,9 @@ def secret(name: str, default=None):
 API_KEY = secret("GEMINI_API_KEY")
 _custom = secret("GEMINI_MODEL")
 MODELS = list(dict.fromkeys(([_custom] if _custom else []) + llm.DEFAULT_MODELS))
+GROQ_KEY = secret("GROQ_API_KEY")  # backup provider, used when Gemini is unavailable
+_groq_custom = secret("GROQ_MODEL")
+GROQ_MODELS = list(dict.fromkeys(([_groq_custom] if _groq_custom else []) + llm.GROQ_TEXT_MODELS))
 FAKE_LLM = os.environ.get("GG_FAKE_LLM") == "1"  # used only by automated tests / screenshots
 
 
@@ -201,7 +204,8 @@ if not ss.consented:
         '<p>GehunGuru is an <b>AI assistant</b> for wheat farmers in Punjab, Haryana, western UP, Delhi NCR and '
         'north Rajasthan. It is not a person, a doctor or a government officer, and it can be wrong.</p>'
         '<p><b>What happens to your data:</b> your questions, voice notes and photos are sent to Google\'s Gemini '
-        'API to create answers. On the free Gemini tier Google may use this content to improve its products. '
+        'API (or, as a backup, the Groq API) to create answers. On the free Gemini tier Google may use this '
+        'content to improve its products. '
         'Your district\'s location (not yours) is sent to Open-Meteo for the weather forecast. Nothing is saved '
         'by this app after you close the tab.</p>'
         '<p><b>Please do not share</b> Aadhaar, bank or phone numbers. The app removes numbers that look like '
@@ -271,13 +275,13 @@ def weather_context() -> str:
     return weather.summary_for_prompt(days, wx_label) + "\nAlerts:\n" + alert_lines
 
 
-def system_prompt() -> str:
+def system_prompt(kb_entries: list[dict] | None = None) -> str:
     return prompts.SYSTEM_TEMPLATE.format(
         language_instruction=prompts.LANGUAGE_INSTRUCTIONS[ss.p_lang],
         intents=", ".join(prompts.INTENTS),
         farm_context=farm_context(),
         weather_context=weather_context(),
-        kb_text=kb.kb_as_prompt_text(),
+        kb_text=kb.kb_as_prompt_text(kb_entries),
     )
 
 
@@ -308,19 +312,76 @@ with col_a:
 
 # ============================================================ chat helpers
 
-def to_contents(history: list[dict]):
-    from google.genai import types
-
-    contents = []
+def history_turns(history: list[dict]) -> list[tuple[str, str]]:
+    """Last few turns as (role, text); photos and voice notes are carried as their text summaries."""
+    out = []
     for m in history[-HISTORY_TURNS:]:
         if m["kind"] in ("handoff", "notice"):
             continue
         text = m.get("llm_text") or m.get("content") or ""
-        if not text:
-            continue
-        role = "user" if m["role"] == "user" else "model"
-        contents.append(types.Content(role=role, parts=[types.Part(text=text)]))
-    return contents
+        if text:
+            out.append(("user" if m["role"] == "user" else "assistant", text))
+    return out
+
+
+def available_providers() -> list[str]:
+    if FAKE_LLM:
+        return ["gemini"]
+    out = []
+    if API_KEY and (not ss.get("gemini_blocked") or not GROQ_KEY):
+        out.append("gemini")
+    if GROQ_KEY:
+        out.append("groq")
+    return out
+
+
+def call_gemini(history, masked, image_bytes, audio_bytes, schema) -> llm.LLMResult:
+    from google.genai import types
+
+    contents = [types.Content(role="user" if r == "user" else "model", parts=[types.Part(text=t)])
+                for r, t in history]
+    parts = []
+    if image_bytes:
+        parts.append(types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"))
+        parts.append(types.Part(text=prompts.DIAGNOSIS_TASK.format(note=masked or "(no note)")))
+    elif audio_bytes:
+        parts.append(types.Part.from_bytes(data=audio_bytes, mime_type="audio/wav"))
+        parts.append(types.Part(text="The farmer's question is in this audio recording. "
+                                     "Transcribe it into `transcript`, then answer it."
+                                + (f" They also typed: {masked}" if masked else "")))
+    else:
+        parts.append(types.Part(text=masked))
+    contents.append(types.Content(role="user", parts=parts))
+    return llm.generate(ai_client(), MODELS, system_prompt(), contents, schema)
+
+
+PHOTO_KB = ["KB-10", "KB-11", "KB-12", "KB-13", "KB-14", "KB-15", "KB-16", "KB-21", "KB-23"]
+
+
+def call_groq(history, masked, image_bytes, audio_bytes, schema) -> llm.LLMResult:
+    import base64
+
+    question, transcript = masked, ""
+    if audio_bytes:
+        transcript, err = llm.groq_transcribe(GROQ_KEY, audio_bytes)
+        if err or not transcript:
+            return llm.LLMResult(False, attempts=[err or "groq whisper: empty transcript"],
+                                 error="The voice note could not be transcribed.")
+        question = transcript + (f"\n(They also typed: {masked})" if masked else "")
+    msgs = [{"role": r, "content": t} for r, t in history]
+    if image_bytes:
+        b64 = base64.b64encode(image_bytes).decode()
+        msgs.append({"role": "user", "content": [
+            {"type": "text", "text": prompts.DIAGNOSIS_TASK.format(note=masked or "(no note)")},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}]})
+        models, entries = llm.GROQ_VISION_MODELS, [kb.KB_BY_ID[i] for i in PHOTO_KB]
+    else:
+        msgs.append({"role": "user", "content": question})
+        models, entries = GROQ_MODELS, kb.select_for(question, stage.key)
+    res = llm.groq_generate(GROQ_KEY, models, system_prompt(entries), msgs, schema)
+    if res.ok and transcript and not res.data.get("transcript"):
+        res.data["transcript"] = transcript
+    return res
 
 
 def offline_reply(query: str) -> str:
@@ -410,10 +471,10 @@ def handle_turn(text: str, image_file=None, audio_file=None):
         stats["injection"] += 1
 
     explicit_human = guardrails.wants_human(text)
-    client = ai_client()
+    providers = available_providers()
 
     # --- no AI available: offline knowledge-base answer
-    if client is None:
+    if not providers:
         stats["offline"] += 1
         stats["intents"]["offline"] += 1
         if image_bytes or audio_file:
@@ -422,33 +483,31 @@ def handle_turn(text: str, image_file=None, audio_file=None):
                           meta={"intent": "offline", "confidence": "high", "model": "offline"})
         else:
             add_assistant(offline_reply(masked), meta={"intent": "offline", "confidence": "medium", "model": "offline",
-                                                       "attempts": ["no GEMINI_API_KEY found in the app's Secrets"]})
+                                                       "attempts": ["no GEMINI_API_KEY or GROQ_API_KEY in Secrets"]})
         if explicit_human:
             _handoff("You asked to speak with a person.")
         return
 
-    from google.genai import types
-    history = to_contents(ss.messages[:-1])
-    parts = []
-    if image_bytes:
-        parts.append(types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"))
-        parts.append(types.Part(text=prompts.DIAGNOSIS_TASK.format(note=masked or "(no note)")))
-        schema = llm.Diagnosis
-    else:
-        if audio_file is not None:
-            if audio_file.size > MAX_AUDIO_MB * 1024 * 1024:
-                add_assistant("That recording is too long. Please keep voice questions under about 2 minutes.")
-                return
-            parts.append(types.Part.from_bytes(data=audio_file.getvalue(), mime_type="audio/wav"))
-            parts.append(types.Part(text="The farmer's question is in this audio recording. "
-                                         "Transcribe it into `transcript`, then answer it."
-                                    + (f" They also typed: {masked}" if masked else "")))
-        else:
-            parts.append(types.Part(text=masked))
-        schema = llm.ChatReply
-    contents = history + [types.Content(role="user", parts=parts)]
+    if audio_file is not None and audio_file.size > MAX_AUDIO_MB * 1024 * 1024:
+        add_assistant("That recording is too long. Please keep voice questions under about 2 minutes.")
+        return
+    schema = llm.Diagnosis if image_bytes else llm.ChatReply
+    audio_bytes = audio_file.getvalue() if audio_file is not None else None
+    history = history_turns(ss.messages[:-1])
 
-    result = llm.generate(client, MODELS, system_prompt(), contents, schema)
+    attempts: list[str] = []
+    result = None
+    for provider in providers:  # Gemini first; Groq as backup
+        if provider == "gemini":
+            result = call_gemini(history, masked, image_bytes, audio_bytes, schema)
+            if result.fatal:
+                ss.gemini_blocked = True  # e.g. Google denied the project: skip Gemini for this session
+        else:
+            result = call_groq(history, masked, image_bytes, audio_bytes, schema)
+        attempts += result.attempts
+        if result.ok:
+            break
+    result.attempts = attempts
     if result.attempts:
         stats["errors"].extend(result.attempts[-3:])
 
@@ -643,7 +702,9 @@ with st.sidebar:
         s = ss.stats
         q = sum(1 for m in ss.messages if m["role"] == "user")
         st.markdown(f"Questions this session: **{q}** of {MAX_QUESTIONS_PER_SESSION}")
-        st.markdown("Gemini API key: **" + ("found" if API_KEY else "not found in Secrets") + "**")
+        st.markdown("Gemini API key: **" + ("found" if API_KEY else "not found") + "**"
+                    + (" (blocked by Google this session)" if ss.get("gemini_blocked") else "")
+                    + "  \nGroq API key (backup): **" + ("found" if GROQ_KEY else "not found") + "**")
         if s["intents"]:
             st.markdown("Topics detected:\n" + "\n".join(
                 f"- {INTENT_LABELS.get(k, k)}: {v}" for k, v in s["intents"].most_common()))
@@ -658,8 +719,8 @@ with st.sidebar:
         st.caption(f"Prompt {prompts.PROMPT_VERSION}. Knowledge base: {len(kb.KB)} entries.")
     with st.expander("About and privacy"):
         st.markdown(
-            "GehunGuru combines a fixed crop calendar, rule-based weather alerts and Google Gemini, grounded on a "
-            f"{len(kb.KB)}-entry wheat knowledge base. Questions and photos go to the Gemini API; the free tier may "
+            "GehunGuru combines a fixed crop calendar, rule-based weather alerts and Google Gemini (Groq as backup), grounded on a "
+            f"{len(kb.KB)}-entry wheat knowledge base. Questions and photos go to the Gemini API (or Groq); Gemini's free tier may "
             "use them to improve Google's products. Only the district's coordinates go to Open-Meteo. Nothing is "
             "stored after the session ends; download the summary if you want a copy.\n\n"
             f"_{kb.SOURCE_NOTE}_")
