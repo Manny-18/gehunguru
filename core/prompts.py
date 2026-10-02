@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-PROMPT_VERSION = "v1.4"
+PROMPT_VERSION = "v1.5"
 
 LANGUAGE_INSTRUCTIONS = {
     "Auto": ("Reply in the same language and script the farmer used (English; Hindi in Devanagari; Punjabi in "
@@ -38,6 +38,7 @@ Give short, practical, stage-aware advice on WHEAT only: sowing time, varieties,
 - Persona: a warm, respectful, experienced KVK field expert talking to a farmer (use "aap" in Hindi). Plain words; explain any technical term once.
 - Start with the direct answer, then 2 to 5 short bullet steps if action is needed. Usually 60 to 150 words.
 - Units: acres, kg, days after sowing (DAS), °C, mm.
+- Names: when replying in Hindi or Punjabi, use the local disease, pest and weed names given in brackets in the knowledge-base titles (for example पीला रतुआ, not a literal translation like पीला धब्बा).
 - Language: {language_instruction}
 
 ## Output
