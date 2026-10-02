@@ -146,7 +146,7 @@ KB: list[dict] = [
     },
     {
         "id": "KB-09",
-        "title": "Weed management (Phalaris minor and broadleaf weeds)",
+        "title": "Weed management (Phalaris minor and broadleaf weeds; खरपतवार / ਨਦੀਨ)",
         "stages": ["seedling", "cri", "tillering"],
         "keywords": ["weed", "weeds", "kharpatwar", "खरपतवार", "ਨਦੀਨ", "gulli danda", "गुल्ली डंडा",
                      "mandusi", "ਗੁੱਲੀ ਡੰਡਾ", "phalaris", "bathua", "बथुआ", "herbicide", "weedicide", "nadeen"],
@@ -162,13 +162,13 @@ KB: list[dict] = [
     },
     {
         "id": "KB-10",
-        "title": "Yellow (stripe) rust",
+        "title": "Yellow (stripe) rust (पीला रतुआ / ਪੀਲੀ ਕੁੰਗੀ)",
         "stages": ["tillering", "jointing", "booting", "heading"],
         "keywords": ["yellow rust", "stripe rust", "peela ratua", "पीला रतुआ", "ਪੀਲੀ ਕੁੰਗੀ", "peeli kungi",
                      "rust", "ratua", "रतुआ", "yellow powder", "peela", "पीला", "yellow stripes", "kungi"],
         "text": (
             "Yellow rust shows as bright yellow to orange powdery pustules arranged in stripes along the leaf "
-            "veins; the powder comes off on fingers or a white cloth when the leaf is rubbed. It appears from "
+            "veins; the powder comes off on fingers or a white cloth when an AFFECTED (striped) leaf is rubbed. It appears from "
             "mid-December to February in cool (about 10-15 °C), humid weather with dew or light rain, first in "
             "foothill districts such as Gurdaspur, Pathankot, Hoshiarpur, Ropar, Yamunanagar and Ambala, often near "
             "tree lines. Scout fields weekly from December. On first appearance spray a fungicide recommended for "
@@ -179,7 +179,7 @@ KB: list[dict] = [
     },
     {
         "id": "KB-11",
-        "title": "Brown (leaf) rust",
+        "title": "Brown (leaf) rust (भूरा रतुआ / ਭੂਰੀ ਕੁੰਗੀ)",
         "stages": ["jointing", "booting", "heading", "milk"],
         "keywords": ["brown rust", "leaf rust", "bhura ratua", "भूरा रतुआ", "ਭੂਰੀ ਕੁੰਗੀ", "orange", "rust",
                      "ratua", "रतुआ", "kungi"],
@@ -192,7 +192,7 @@ KB: list[dict] = [
     },
     {
         "id": "KB-12",
-        "title": "Loose smut",
+        "title": "Loose smut (कांगियारी / ਕਾਂਗਿਆਰੀ)",
         "stages": ["heading"],
         "keywords": ["loose smut", "kangiyari", "कांगियारी", "ਕਾਂਗਿਆਰੀ", "black ear", "kali bali", "काली बाली",
                      "black powder", "smut"],
@@ -205,7 +205,7 @@ KB: list[dict] = [
     },
     {
         "id": "KB-13",
-        "title": "Karnal bunt",
+        "title": "Karnal bunt (करनाल बंट / ਕਰਨਾਲ ਬੰਟ)",
         "stages": ["heading", "milk", "dough", "maturity"],
         "keywords": ["karnal bunt", "bunt", "fishy smell", "machhli", "मछली जैसी गंध", "black grain",
                      "kala dana", "काला दाना", "ਕਰਨਾਲ ਬੰਟ"],
@@ -219,7 +219,7 @@ KB: list[dict] = [
     },
     {
         "id": "KB-14",
-        "title": "Powdery mildew",
+        "title": "Powdery mildew (चूर्णिल आसिता / ਚਿੱਟਾ ਰੋਗ)",
         "stages": ["tillering", "jointing", "booting", "heading"],
         "keywords": ["powdery mildew", "white powder", "safed", "सफेद चूर्ण", "chitta", "ਚਿੱਟਾ",
                      "mildew", "safed rog"],
@@ -232,7 +232,7 @@ KB: list[dict] = [
     },
     {
         "id": "KB-15",
-        "title": "Termites",
+        "title": "Termites (दीमक / ਸਿਉਂਕ)",
         "stages": ["germination", "seedling", "cri", "tillering", "maturity"],
         "keywords": ["termite", "termites", "deemak", "दीमक", "ਸਿਉਂਕ", "siunk", "plants drying", "sookh",
                      "सूख", "roots eaten"],
@@ -246,7 +246,7 @@ KB: list[dict] = [
     },
     {
         "id": "KB-16",
-        "title": "Aphids",
+        "title": "Aphids (तेला, चेपा / ਚੇਪਾ)",
         "stages": ["booting", "heading", "milk"],
         "keywords": ["aphid", "aphids", "tela", "तेला", "chepa", "चेपा", "ਚੇਪਾ", "insects on ear",
                      "keede", "कीड़े", "ਕੀੜੇ", "honeydew", "sticky"],
@@ -286,7 +286,7 @@ KB: list[dict] = [
     },
     {
         "id": "KB-19",
-        "title": "Frost and cold waves",
+        "title": "Frost and cold waves (पाला / ਕੋਰਾ)",
         "stages": ["seedling", "cri", "tillering", "jointing", "booting", "heading"],
         "keywords": ["frost", "pala", "पाला", "ਕੋਰਾ", "kora", "cold", "thand", "ठंड", "shit leher", "शीतलहर"],
         "text": (
@@ -318,7 +318,8 @@ KB: list[dict] = [
             "leaves show pale streaks or bronzing in the middle of the leaf and growth is stunted. Manganese "
             "deficiency (common on light soils after rice): grey-yellow spots and streaks between veins on middle "
             "leaves. Waterlogging after heavy irrigation or rain also causes yellowing. Rub the leaf: rust leaves "
-            "yellow/orange powder on the finger, deficiency does not. Confirm with a soil test or the KVK."
+            "yellow/orange powder on the finger, deficiency does not (always rub an affected leaf, not a healthy one). "
+            "Confirm with a soil test or the KVK."
         ),
     },
     {
