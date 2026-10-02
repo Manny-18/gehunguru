@@ -421,7 +421,8 @@ def handle_turn(text: str, image_file=None, audio_file=None):
                           "problem in words, or call the Kisan Call Centre at **1800-180-1551**.",
                           meta={"intent": "offline", "confidence": "high", "model": "offline"})
         else:
-            add_assistant(offline_reply(masked), meta={"intent": "offline", "confidence": "medium", "model": "offline"})
+            add_assistant(offline_reply(masked), meta={"intent": "offline", "confidence": "medium", "model": "offline",
+                                                       "attempts": ["no GEMINI_API_KEY found in the app's Secrets"]})
         if explicit_human:
             _handoff("You asked to speak with a person.")
         return
@@ -531,6 +532,8 @@ def render_message(m: dict, is_last: bool, idx: int):
             if bits:
                 st.markdown('<div class="gg-meta">' + "&nbsp;&nbsp;&nbsp;".join(bits) + "</div>",
                             unsafe_allow_html=True)
+            if meta.get("attempts") and meta.get("model") == "offline":
+                st.caption("Why the AI did not answer: " + " | ".join(meta["attempts"][-3:]))
             srcs = meta.get("sources") or []
             if srcs:
                 with st.popover(f"Sources used ({len(srcs)})"):
@@ -640,6 +643,7 @@ with st.sidebar:
         s = ss.stats
         q = sum(1 for m in ss.messages if m["role"] == "user")
         st.markdown(f"Questions this session: **{q}** of {MAX_QUESTIONS_PER_SESSION}")
+        st.markdown("Gemini API key: **" + ("found" if API_KEY else "not found in Secrets") + "**")
         if s["intents"]:
             st.markdown("Topics detected:\n" + "\n".join(
                 f"- {INTENT_LABELS.get(k, k)}: {v}" for k, v in s["intents"].most_common()))
