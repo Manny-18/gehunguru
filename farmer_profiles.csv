@@ -1,0 +1,5 @@
+id,label,name,district,sowing_date,advisory_date,variety,irrigation,soil,acres,language,weather_mode,demo_question
+amit,"Amit, Hisar: not sown yet (live weather)",Amit Sharma,Hisar,,today,Not sure,Tubewell,Sandy loam,4,English,live,Which variety should I sow and when? I have tubewell irrigation.
+gurpreet,"Gurpreet, Ludhiana: day 23, rain coming",Gurpreet Singh,Ludhiana,2026-11-05,2026-11-28,PBW 826,Tubewell,Loam,6,Punjabi,rain_wind,ਮੈਂ ਪਹਿਲਾ ਪਾਣੀ ਕਦੋਂ ਲਾਵਾਂ?
+ramesh,"Ramesh, Yamunanagar: day 56, rust weather",Ramesh Kumar,Yamunanagar,2026-11-10,2027-01-05,HD 3086,Canal + tubewell,Clay loam,3,Hindi,cold_humid,पत्तों पर पीली धारियां दिख रही हैं। क्या करूं?
+sunita,"Sunita, Meerut: late-sown, heat at grain filling",Sunita Devi,Meerut,2026-12-10,2027-03-25,PBW 752 (late),Canal,Loam,2.5,Hinglish,heat_wave,"Garmi badh rahi hai, daane ke liye kya karein?"
