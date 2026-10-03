@@ -308,7 +308,7 @@ def weather_context() -> str:
 
 def system_prompt(kb_entries: list[dict] | None = None) -> str:
     return prompts.SYSTEM_TEMPLATE.format(
-        language_instruction=prompts.LANGUAGE_INSTRUCTIONS[ss.p_lang],
+        language_instruction=prompts.LANGUAGE_INSTRUCTIONS[ss.get("turn_lang") or ss.p_lang],
         intents=", ".join(prompts.INTENTS),
         farm_context=farm_context(),
         weather_context=weather_context(),
@@ -369,7 +369,7 @@ def available_providers() -> list[str]:
 def call_gemini(history, masked, image_bytes, audio_bytes, schema) -> llm.LLMResult:
     from google.genai import types
 
-    hint = prompts.language_hint(ss.p_lang)
+    hint = prompts.language_hint(ss.get("turn_lang") or ss.p_lang)
 
     contents = [types.Content(role="user" if r == "user" else "model", parts=[types.Part(text=t)])
                 for r, t in history]
@@ -394,7 +394,7 @@ PHOTO_KB = ["KB-10", "KB-11", "KB-12", "KB-13", "KB-14", "KB-15", "KB-16", "KB-2
 def call_groq(history, masked, image_bytes, audio_bytes, schema) -> llm.LLMResult:
     import base64
 
-    question, transcript, hint = masked, "", prompts.language_hint(ss.p_lang)
+    question, transcript, hint = masked, "", prompts.language_hint(ss.get("turn_lang") or ss.p_lang)
     if audio_bytes:
         transcript, err = llm.groq_transcribe(GROQ_KEY, audio_bytes, groq_models("whisper"))
         if err or not transcript:
@@ -530,6 +530,7 @@ def handle_turn(text: str, image_file=None, audio_file=None):
         return
     schema = llm.Diagnosis if image_bytes else llm.ChatReply
     audio_bytes = audio_file.getvalue() if audio_file is not None else None
+    ss.turn_lang = prompts.effective_language(ss.p_lang, masked)  # Auto: decided in code, not by the model
     history = history_turns(ss.messages[:-1])
 
     attempts: list[str] = []
