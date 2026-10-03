@@ -7,14 +7,17 @@
 - Recorder: Windows **Win + Alt + R** (Xbox Game Bar), Mac **Cmd + Shift + 5**, or OBS. Turn your mic on.
 - Upload the video to Google Drive (Share > Anyone with the link) or YouTube (Unlisted). Paste the link in the report.
 - Take a screenshot at every step marked 📸. Each one goes into the matching placeholder in the report.
-- Answers from Gemini vary slightly each time. If a step gives a weak answer, press **Start a new chat** and repeat it.
+- AI answers vary slightly each time. If a step gives a weak answer, press **Start a new chat** and repeat it.
+- Open **Session insights** in the sidebar and check the last line says **Prompt v1.6** (latest code is live).
+- The free AI tier allows only a few questions per minute: pause about 10 seconds between questions.
 
 ---
 
 ### Scene 1: Introduction (30 s)
 Say: "This is GehunGuru, an AI chatbot for wheat farmers in North-West India. It knows the farmer's crop stage
 from the sowing date, reads the weather forecast, and answers by text, voice or photo in four languages.
-It is built with Streamlit and Google Gemini through the free API."
+It is built with Streamlit and Google Gemini, with Groq as an automatic backup. Google blocked our free Gemini
+project during testing, so what you see now is answered through Groq; that switch happened automatically."
 
 ### Scene 2: Consent and AI disclosure (20 s): report B4, F4
 Show the **Before you start** screen. Read the data line aloud. Click **I understand, start**.
@@ -41,7 +44,8 @@ Now click **+** in the chat box, attach your yellow-rust photo, type **"ye kya h
 Show the possible-causes card and the automatic **Talk to a human expert** card with the reference number. 📸
 
 ### Scene 6: Voice question (30 s)
-Click the **mic** in the chat box and say in Hindi: *"Gehun mein kharpatwar ke liye dawai kab chhidakni chahiye?"*
+Click the **mic** in the chat box (allow the microphone if the browser asks), say in Hindi:
+*"Gehun mein kharpatwar ke liye dawai kab chhidakni chahiye?"*, then click the **✓ (Submit recording)** button.
 (When should I spray for weeds in wheat?). Show that your words appear as the transcript. 📸
 
 ### Scene 7: Guardrails (100 s): report B3, F3, C2
@@ -66,8 +70,9 @@ Click **Talk to a human expert** in the sidebar. Click **Download chat summary**
 Open **Session insights**: topics detected, hand-offs, masked numbers, models used. 📸
 
 ### Scene 11: Failure mode (optional, 30 s): report B5
-In Streamlit Cloud, open the app's **Settings > Secrets**, change the key to `"wrong"` and save.
-Ask a question: the app says the key was rejected and answers from the offline knowledge base.
+In Streamlit Cloud, open the app's **Settings > Secrets**, change the **GROQ_API_KEY** value to `"wrong"` and save
+(Gemini is already blocked, so this leaves the app with no working AI).
+Ask a question: the app answers from the offline knowledge base, and the grey "Why the AI did not answer" line shows the reason.
 **Change the key back immediately.** 📸
 
 ### Closing (15 s)

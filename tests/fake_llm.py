@@ -19,6 +19,14 @@ def _last_user_text(contents) -> str:
     return ""
 
 
+def _has_mime(contents, prefix: str) -> bool:
+    for p in contents[-1].parts:
+        inline = getattr(p, "inline_data", None)
+        if inline is not None and str(getattr(inline, "mime_type", "")).startswith(prefix):
+            return True
+    return False
+
+
 def _has_image(contents) -> bool:
     c = contents[-1]
     for p in c.parts:
@@ -43,7 +51,11 @@ class _Models:
             from google.genai import errors
             raise errors.ClientError(429, {"error": {"code": 429, "message": "quota", "status": "RESOURCE_EXHAUSTED"}})
         text = _last_user_text(contents).lower()
-        if _has_image(contents):
+        if _has_mime(contents, "audio/"):
+            data = {"answer": "(model answer that must be replaced by the fixed safety reply)", "intent": "other",
+                    "confidence": "high", "sources": [], "needs_human": False, "handoff_reason": "",
+                    "follow_up": "", "transcript": "spray ke baad chakkar aa rahe hain, mera number 9876543210"}
+        elif _has_image(contents):
             data = {
                 "is_wheat": True, "image_quality": "good",
                 "possible_causes": [

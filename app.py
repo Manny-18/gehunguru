@@ -355,19 +355,21 @@ def available_providers() -> list[str]:
 def call_gemini(history, masked, image_bytes, audio_bytes, schema) -> llm.LLMResult:
     from google.genai import types
 
+    hint = prompts.language_hint(ss.p_lang)
+
     contents = [types.Content(role="user" if r == "user" else "model", parts=[types.Part(text=t)])
                 for r, t in history]
     parts = []
     if image_bytes:
         parts.append(types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"))
-        parts.append(types.Part(text=prompts.DIAGNOSIS_TASK.format(note=masked or "(no note)")))
+        parts.append(types.Part(text=prompts.DIAGNOSIS_TASK.format(note=masked or "(no note)") + hint))
     elif audio_bytes:
         parts.append(types.Part.from_bytes(data=audio_bytes, mime_type="audio/wav"))
         parts.append(types.Part(text="The farmer's question is in this audio recording. "
                                      "Transcribe it into `transcript`, then answer it."
-                                + (f" They also typed: {masked}" if masked else "")))
+                                + (f" They also typed: {masked}" if masked else "") + hint))
     else:
-        parts.append(types.Part(text=masked))
+        parts.append(types.Part(text=masked + hint))
     contents.append(types.Content(role="user", parts=parts))
     return llm.generate(ai_client(), MODELS, system_prompt(), contents, schema)
 
@@ -378,7 +380,7 @@ PHOTO_KB = ["KB-10", "KB-11", "KB-12", "KB-13", "KB-14", "KB-15", "KB-16", "KB-2
 def call_groq(history, masked, image_bytes, audio_bytes, schema) -> llm.LLMResult:
     import base64
 
-    question, transcript = masked, ""
+    question, transcript, hint = masked, "", prompts.language_hint(ss.p_lang)
     if audio_bytes:
         transcript, err = llm.groq_transcribe(GROQ_KEY, audio_bytes)
         if err or not transcript:
@@ -389,11 +391,11 @@ def call_groq(history, masked, image_bytes, audio_bytes, schema) -> llm.LLMResul
     if image_bytes:
         b64 = base64.b64encode(image_bytes).decode()
         msgs.append({"role": "user", "content": [
-            {"type": "text", "text": prompts.DIAGNOSIS_TASK.format(note=masked or "(no note)")},
+            {"type": "text", "text": prompts.DIAGNOSIS_TASK.format(note=masked or "(no note)") + hint},
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}]})
         models, entries = llm.GROQ_VISION_MODELS, [kb.KB_BY_ID[i] for i in PHOTO_KB]
     else:
-        msgs.append({"role": "user", "content": question})
+        msgs.append({"role": "user", "content": question + hint})
         models, entries = GROQ_MODELS, kb.select_for(question, stage.key)
     res = llm.groq_generate(GROQ_KEY, models, system_prompt(entries), msgs, schema)
     if res.ok and transcript and not res.data.get("transcript"):
@@ -441,8 +443,9 @@ def handle_turn(text: str, image_file=None, audio_file=None):
     if n_questions >= MAX_QUESTIONS_PER_SESSION:
         st.toast("Session limit reached. Press 'Start a new chat' in the sidebar.")
         return
-    fingerprint = hashlib.sha256(
-        (text + str(getattr(image_file, "size", "")) + str(getattr(audio_file, "size", ""))).encode()).hexdigest()
+    blob = (text.encode() + (image_file.getvalue() if image_file is not None else b"")
+            + (audio_file.getvalue() if audio_file is not None else b""))
+    fingerprint = hashlib.sha256(blob).hexdigest()
     if fingerprint == ss.last_hash and time.time() - ss.last_call < 15:
         st.toast("You already sent that. The answer is above.")
         return
@@ -561,8 +564,20 @@ def handle_turn(text: str, image_file=None, audio_file=None):
         add_assistant(offline_reply(masked), meta={"intent": "offline", "model": "offline"})
         return
     if audio_file is not None and r["transcript"]:
-        user_msg["content"] = "🎤 " + guardrails.mask_pii(r["transcript"])[0]
-        user_msg["llm_text"] = r["transcript"]
+        spoken, spoken_pii = guardrails.mask_pii(r["transcript"])
+        user_msg["content"] = "🎤 " + spoken
+        user_msg["llm_text"] = spoken  # later turns only ever see the masked transcript
+        if spoken_pii:
+            user_msg["meta"]["pii"] = sorted(set(user_msg["meta"]["pii"]) | set(spoken_pii))
+            stats["pii"] += 1
+        spoken_emergency = guardrails.detect_emergency(r["transcript"])
+        if spoken_emergency:  # same fixed reply as for typed emergencies
+            stats["emergency"] += 1
+            stats["intents"]["emergency"] += 1
+            add_assistant(guardrails.EMERGENCY_REPLIES[spoken_emergency],
+                          meta={"intent": "emergency", "confidence": "high", "model": "fixed safety reply"})
+            return
+        explicit_human = explicit_human or guardrails.wants_human(r["transcript"])
     stats["intents"][r["intent"]] += 1
     if r["dose_redacted"]:
         stats["dose_redacted"] += 1
@@ -578,7 +593,7 @@ def _handoff(reason: str):
     ss.messages.append({"role": "assistant", "kind": "handoff", "content": "", "meta": {"ticket": t, "reason": reason}})
 
 
-def render_message(m: dict, is_last: bool, idx: int):
+def render_message(m: dict, show_follow_up: bool, idx: int):
     avatar = "🧑‍🌾" if m["role"] == "user" else "🌾"
     with st.chat_message(m["role"], avatar=avatar):
         meta = m.get("meta", {})
@@ -617,7 +632,7 @@ def render_message(m: dict, is_last: bool, idx: int):
                         e = kb.KB_BY_ID[sid]
                         st.markdown(f"**[{sid}] {e['title']}**\n\n{e['text']}")
                     st.caption(kb.SOURCE_NOTE)
-            if is_last and meta.get("follow_up"):
+            if show_follow_up and meta.get("follow_up"):
                 if st.button(f"Ask: {meta['follow_up']}", key=f"fu_{idx}"):
                     ss.pending = meta["follow_up"]
                     st.rerun()
@@ -664,8 +679,11 @@ if not ss.messages:
             ss.pending = q
             st.rerun()
 
+last_user = max((i for i, m in enumerate(ss.messages) if m["role"] == "user"), default=-1)
+last_answer = max((i for i, m in enumerate(ss.messages) if m["role"] == "assistant" and m["kind"] == "chat"),
+                  default=-1)
 for i, m in enumerate(ss.messages):
-    render_message(m, i == len(ss.messages) - 1, i)
+    render_message(m, i == last_answer and last_answer > last_user, i)
 
 value = st.chat_input("Type your question, attach a leaf photo (+) or record your voice",
                       accept_file=True, file_type=["jpg", "jpeg", "png", "webp"], accept_audio=True,

@@ -17,7 +17,7 @@ Use case #18 (Agri-advisory bot for a specific crop/region), AI Applications end
 | Grounded answers | 24-entry wheat knowledge base (`core/knowledge_base.py`); every answer shows its sources. |
 | Guardrails | No pesticide doses (and a filter removes any that slip through), phone/Aadhaar masking, fixed emergency replies, prompt-injection refusal, out-of-scope redirect. |
 | Human hand-off | Kisan Call Centre 1800-180-1551, KVK link, reference ticket, downloadable chat summary. |
-| Failure handling | Model fallback chain, then offline knowledge-base answers if Gemini is down or no key is set. |
+| Failure handling | Gemini model fallback chain, then Groq as a backup provider, then offline knowledge-base answers. |
 
 ## Project structure
 
@@ -31,7 +31,7 @@ core/prompts.py            System prompt and photo-check prompt
 core/llm.py                Gemini wrapper: fallback chain, JSON parsing, output guardrails
 core/ui.py                 CSS and HTML for the crop track, weather and cards
 sample_data/farmer_profiles.csv   4 demo farmers (one per season stage)
-tests/                     42 unit tests + a fake AI client for offline testing
+tests/                     50 unit tests + a fake AI client for offline testing
 .streamlit/config.toml     Theme (colours, Mukta font)
 ```
 
@@ -39,6 +39,14 @@ tests/                     42 unit tests + a fake AI client for offline testing
 
 1. Open https://aistudio.google.com/apikey and sign in with a Google account.
 2. Click **Create API key**, then copy it. Keep it private: never paste it into the code or GitHub.
+
+## Step 1b: get a free Groq API key (backup AI, 2 minutes)
+
+Google sometimes blocks new free projects with "Your project has been denied access". The app then switches to
+Groq automatically, so set this up too.
+
+1. Open https://console.groq.com, sign in with Google or GitHub (no card needed).
+2. Go to **API Keys > Create API Key**, give it any name, and copy the key (it starts with `gsk_`).
 
 ## Step 2: put the code on GitHub (5 minutes)
 
@@ -59,7 +67,8 @@ tests/                     42 unit tests + a fake AI client for offline testing
 4. Optional: set **App URL** to something memorable, such as `gehunguru-yourname`.
 5. Open **Advanced settings**: choose Python **3.12**, and in **Secrets** paste:
    ```toml
-   GEMINI_API_KEY = "paste-your-key-here"
+   GEMINI_API_KEY = "paste-your-gemini-key-here"
+   GROQ_API_KEY = "paste-your-groq-key-here"
    ```
 6. Click **Deploy**. The first build takes 2 to 4 minutes. Your shareable link looks like
    `https://gehunguru-yourname.streamlit.app`.
@@ -68,7 +77,9 @@ tests/                     42 unit tests + a fake AI client for offline testing
 
 1. Open the link, click **I understand, start**.
 2. In the sidebar, pick the sample farmer **Gurpreet, Ludhiana** and tap the first suggested question.
-3. The answer should show "Answered by gemini-..." underneath. If it says "offline", see Troubleshooting.
+3. The answer should show "Answered by gemini-..." or "Answered by groq/..." underneath. If it says "offline",
+   read the grey "Why the AI did not answer" line and see Troubleshooting.
+4. Open **Session insights** in the sidebar: it shows whether each API key was found and the prompt version (v1.6).
 
 ## Troubleshooting
 
@@ -78,6 +89,7 @@ tests/                     42 unit tests + a fake AI client for offline testing
 | Answers say "offline" and Session insights shows "rate limit / quota reached" | The free tier's per-minute or daily limit was hit. Wait a minute (daily quota resets at midnight Pacific time). |
 | Session insights shows "model not available" for every model | Google renamed or retired a model. Pick a current Flash model from https://ai.google.dev/gemini-api/docs/models and add `GEMINI_MODEL = "model-id"` to Secrets. |
 | "API key rejected" | Create a new key in AI Studio and update Secrets. |
+| "Your project has been denied access" | Google has flagged the project; appeals are slow. Add `GROQ_API_KEY` (Step 1b): the app then answers through Groq automatically. |
 | "Live weather is unavailable" | Open-Meteo was unreachable; choose a sample week under **Weather data**, the rest still works. |
 | App shows a "wake up" screen | Free apps sleep when nobody visits for a while. Open your link on the morning of evaluation and click the button. |
 

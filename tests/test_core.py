@@ -220,3 +220,27 @@ def test_invalid_key_is_fatal_and_stops_retrying():
     contents = [types.Content(role="user", parts=[types.Part(text="hi")])]
     res = llm.generate(client, ["bad-key", "gemini-2.5-flash"], "sys", contents, llm.ChatReply)
     assert not res.ok and res.fatal and client.models.calls == ["bad-key"]
+
+
+def test_failure_reasons_are_readable():
+    client = FakeClient(fail_models={"m1"})
+    from google.genai import types
+    contents = [types.Content(role="user", parts=[types.Part(text="hi")])]
+    res = llm.generate(client, ["m1"], "sys", contents, llm.ChatReply)
+    assert "rate limit" in res.attempts[0] and "quota" in res.attempts[0]
+
+
+def test_suspected_rust_always_hands_off():
+    r = llm.normalise_chat({"answer": "Could be yellow rust.", "intent": "diseases", "confidence": "high",
+                            "sources": ["KB-10", "KB-21"], "needs_human": False})
+    assert r["needs_human"] and "yellow rust" in r["handoff_reason"]
+    r = llm.normalise_chat({"answer": "Looks like nitrogen deficiency.", "intent": "diseases", "confidence": "high",
+                            "sources": ["KB-21"], "needs_human": False})
+    assert not r["needs_human"]
+
+
+def test_language_hint_and_late_window_text():
+    from core import prompts
+    assert "only in English" in prompts.language_hint("English")
+    assert "same language" in prompts.language_hint("unknown")
+    assert "20 December" in kb.KB_BY_ID["KB-01"]["text"] and "16-30" not in kb.KB_BY_ID["KB-01"]["text"]

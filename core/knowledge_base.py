@@ -37,8 +37,9 @@ KB: list[dict] = [
         "text": (
             "Timely sowing for irrigated wheat in Punjab and Haryana is roughly 25 October to 15 November; "
             "in western Uttar Pradesh, Delhi NCR and north Rajasthan roughly 1 to 20 November. "
-            "Sowing after about 20 November counts as late sowing and up to about 20 December as very late; "
-            "yield potential falls steadily with every week of delay because the crop meets terminal heat "
+            "Late sowing runs from the end of that timely window (mid to late November) up to about 20 December, "
+            "using late-sown varieties and a higher seed rate; sowing after about 20 December is very late. "
+            "Yield potential falls steadily with every week of delay because the crop meets terminal heat "
             "at grain filling in March. Sow when the average day temperature has come down to about 20 to 22 °C "
             "and the soil has proper moisture (vattar). Sowing too early in hot weather causes poor tillering."
         ),

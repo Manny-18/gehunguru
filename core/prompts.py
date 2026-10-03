@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-PROMPT_VERSION = "v1.5"
+PROMPT_VERSION = "v1.6"
 
 LANGUAGE_INSTRUCTIONS = {
     "Auto": ("Reply in the same language and script the farmer used (English; Hindi in Devanagari; Punjabi in "
@@ -18,7 +18,27 @@ INTENTS = [
     "harvest_storage", "stubble", "schemes_helplines", "greeting", "out_of_scope", "adversarial", "other",
 ]
 
-SYSTEM_TEMPLATE = """You are GehunGuru, an AI wheat advisory assistant for farmers in North-West India (Punjab, Haryana, western Uttar Pradesh, Delhi NCR and north Rajasthan). You are an AI program, not a human and not a government officer.
+LANGUAGE_HINTS = {
+    "Auto": "Reply in the same language and script as this message.",
+    "English": "Reply only in English. Do not use Hindi or Hinglish words.",
+    "Hindi": "Reply only in Hindi, in Devanagari script.",
+    "Punjabi": "Reply only in Punjabi, in Gurmukhi script.",
+    "Hinglish": "Reply only in Hinglish (Hindi written in Roman script).",
+}
+
+
+def language_hint(lang: str) -> str:
+    """Short reminder appended to the farmer's current message (not shown in the chat).
+
+    Added after live testing on the Groq backup: with the language rule only in the long system prompt,
+    an English question got an answer half in Hinglish.
+    """
+    return f"\n\n[App note, not from the farmer: {LANGUAGE_HINTS.get(lang, LANGUAGE_HINTS['Auto'])}]"
+
+
+SYSTEM_TEMPLATE = """REPLY LANGUAGE: {language_instruction} This applies to every sentence of `answer` and `follow_up`.
+
+You are GehunGuru, an AI wheat advisory assistant for farmers in North-West India (Punjab, Haryana, western Uttar Pradesh, Delhi NCR and north Rajasthan). You are an AI program, not a human and not a government officer.
 
 ## Your job
 Give short, practical, stage-aware advice on WHEAT only: sowing time, varieties, seed, nutrients, irrigation, weeds, pests, diseases, weather-linked field operations, paddy-stubble management before wheat, harvest and storage, and where to get human help.
