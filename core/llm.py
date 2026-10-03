@@ -307,9 +307,54 @@ def normalise_diagnosis(data: dict) -> dict:
 # ======================================================================
 
 GROQ_URL = "https://api.groq.com/openai/v1"
-GROQ_TEXT_MODELS = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
-GROQ_VISION_MODELS = ["meta-llama/llama-4-scout-17b-16e-instruct", "meta-llama/llama-4-maverick-17b-128e-instruct"]
-GROQ_WHISPER = "whisper-large-v3-turbo"
+# Used only if the live model list cannot be fetched. Groq retires models often (two of our first
+# fallbacks, llama-3.3-70b-versatile and llama-3.1-8b-instant, disappeared mid-project), so the app
+# normally asks Groq which models exist right now and picks from that list (see pick_groq_models).
+GROQ_TEXT_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+GROQ_VISION_MODELS = ["meta-llama/llama-4-scout-17b-16e-instruct", "qwen/qwen3.8-27b"]
+GROQ_WHISPER = "whisper-large-v3"
+GROQ_MAX_OUTPUT = 1400  # Groq counts reserved output tokens against the 8K tokens/minute free limit
+
+_TEXT_PREFERENCE = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/", "meta-llama/llama-4", "llama-3.3", "llama"]
+_SKIP = ("guard", "whisper", "tts", "playai", "orpheus", "compound", "distil", "embed")
+_VISION_HINTS = ("scout", "maverick", "vision", "-vl", "qwen")
+
+
+def groq_list_models(api_key: str, timeout: float = 10) -> list[str]:
+    """Live list of model ids this key can use; [] if the call fails."""
+    import requests
+
+    try:
+        r = requests.get(f"{GROQ_URL}/models", headers={"Authorization": f"Bearer {api_key}"}, timeout=timeout)
+        if r.status_code != 200:
+            return []
+        return sorted(m["id"] for m in r.json().get("data", []) if m.get("active", True) and m.get("id"))
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def pick_groq_models(available: list[str], kind: str) -> list[str]:
+    """Choose models in preference order from what Groq offers today."""
+    if not available:
+        return {"text": GROQ_TEXT_MODELS, "vision": GROQ_VISION_MODELS, "whisper": [GROQ_WHISPER]}[kind]
+    if kind == "whisper":
+        w = [m for m in available if "whisper" in m]
+        return sorted(w, key=lambda m: (0 if "turbo" in m else 1, m))[:2] or [GROQ_WHISPER]
+    usable = [m for m in available if not any(x in m.lower() for x in _SKIP)]
+    if kind == "vision":
+        return [m for m in usable if any(h in m.lower() for h in _VISION_HINTS)][:3]
+    ordered = []
+    for pref in _TEXT_PREFERENCE:
+        ordered += [m for m in usable if m.startswith(pref) and m not in ordered]
+    return ordered[:4] or usable[:3]
+
+
+def _retry_after(text: str) -> float | None:
+    """Seconds from Groq's 'Please try again in 1m2.5s' / '7.5s' message."""
+    m = re.search(r"try again in (?:(\d+)m)?([\d.]+)s", text or "")
+    if not m:
+        return None
+    return int(m.group(1) or 0) * 60 + float(m.group(2))
 
 _SKELETONS = {
     "ChatReply": {
@@ -331,18 +376,22 @@ def json_instruction(schema: type[BaseModel]) -> str:
             "(values here are examples of the type):\n" + json.dumps(_SKELETONS[schema.__name__], ensure_ascii=False))
 
 
-def groq_transcribe(api_key: str, wav: bytes, timeout: float = 60) -> tuple[str | None, str | None]:
+def groq_transcribe(api_key: str, wav: bytes, models: list[str] | None = None,
+                    timeout: float = 60) -> tuple[str | None, str | None]:
     import requests
 
-    try:
-        r = requests.post(f"{GROQ_URL}/audio/transcriptions", headers={"Authorization": f"Bearer {api_key}"},
-                          files={"file": ("question.wav", wav, "audio/wav")},
-                          data={"model": GROQ_WHISPER, "response_format": "json"}, timeout=timeout)
-        if r.status_code != 200:
-            return None, f"{GROQ_WHISPER}: error {r.status_code}: {_short(Exception(r.text))}"
-        return (r.json().get("text") or "").strip(), None
-    except Exception as e:  # noqa: BLE001
-        return None, f"{GROQ_WHISPER}: {type(e).__name__}: {_short(e)}"
+    errs = []
+    for model in models or [GROQ_WHISPER]:
+        try:
+            r = requests.post(f"{GROQ_URL}/audio/transcriptions", headers={"Authorization": f"Bearer {api_key}"},
+                              files={"file": ("question.wav", wav, "audio/wav")},
+                              data={"model": model, "response_format": "json"}, timeout=timeout)
+            if r.status_code == 200:
+                return (r.json().get("text") or "").strip(), None
+            errs.append(f"{model}: error {r.status_code}: {_short(Exception(r.text), 90)}")
+        except Exception as e:  # noqa: BLE001
+            errs.append(f"{model}: {type(e).__name__}: {_short(e, 90)}")
+    return None, " | ".join(errs)
 
 
 def groq_generate(api_key: str, models: list[str], system: str, messages: list[dict], schema: type[BaseModel],
@@ -354,9 +403,9 @@ def groq_generate(api_key: str, models: list[str], system: str, messages: list[d
     attempts: list[str] = []
     full_system = system + json_instruction(schema)
     for model in models:
-        use_json_mode, server_retry_done = True, False
+        use_json_mode, server_retry_done, waited = True, False, False
         while True:
-            body = {"model": model, "temperature": temperature, "max_completion_tokens": 2500,
+            body = {"model": model, "temperature": temperature, "max_completion_tokens": GROQ_MAX_OUTPUT,
                     "messages": [{"role": "system", "content": full_system}] + messages}
             if use_json_mode:
                 body["response_format"] = {"type": "json_object"}
@@ -389,13 +438,21 @@ def groq_generate(api_key: str, models: list[str], system: str, messages: list[d
             if code == 400 and use_json_mode and ("json" in text.lower() or "response_format" in text):
                 use_json_mode = False  # model rejected JSON mode or failed to validate: ask in plain text
                 continue
+            if code == 429 and not waited:
+                wait = _retry_after(text)
+                if wait is not None and wait <= 8:  # per-minute limit: a short pause is enough
+                    waited = True
+                    time.sleep(wait + 0.5)
+                    continue
             if code >= 500 and not server_retry_done:
                 server_retry_done = True
                 time.sleep(1.5)
                 continue
             label = {404: "model not available", 413: "request too large for free limit",
                      429: "rate limit / quota reached"}.get(code, f"error {code}")
-            attempts.append(f"groq {model}: {label}: {_short(Exception(text))}")
+            if code == 400 and ("does not exist" in text or "decommissioned" in text):
+                label = "model not available"
+            attempts.append(f"groq {model}: {label}: {_short(Exception(text), 90)}")
             break
     return LLMResult(False, attempts=attempts, error="All backup models failed.",
                      latency_ms=int((time.time() - t0) * 1000))
