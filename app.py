@@ -48,7 +48,8 @@ _custom = secret("GEMINI_MODEL")
 MODELS = list(dict.fromkeys(([_custom] if _custom else []) + llm.DEFAULT_MODELS))
 GROQ_KEY = secret("GROQ_API_KEY")  # backup provider, used when Gemini is unavailable
 _groq_custom = secret("GROQ_MODEL")
-GROQ_MODELS = list(dict.fromkeys(([_groq_custom] if _groq_custom else []) + llm.GROQ_TEXT_MODELS))
+GROQ_HISTORY_TURNS = 6  # Groq's free tier allows ~8K tokens per minute, so keep requests small
+GROQ_KB_ENTRIES = 7
 FAKE_LLM = os.environ.get("GG_FAKE_LLM") == "1"  # used only by automated tests / screenshots
 
 
@@ -64,6 +65,19 @@ def ai_client():
     if not API_KEY:
         return None
     return get_client(API_KEY)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def groq_catalog(key: str) -> list[str]:
+    """Models Groq offers today (cached for an hour); [] means 'use the built-in list'."""
+    return llm.groq_list_models(key)
+
+
+def groq_models(kind: str) -> list[str]:
+    picked = llm.pick_groq_models(groq_catalog(GROQ_KEY), kind)
+    if kind == "text" and _groq_custom:
+        picked = [_groq_custom] + [m for m in picked if m != _groq_custom]
+    return picked
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -382,21 +396,24 @@ def call_groq(history, masked, image_bytes, audio_bytes, schema) -> llm.LLMResul
 
     question, transcript, hint = masked, "", prompts.language_hint(ss.p_lang)
     if audio_bytes:
-        transcript, err = llm.groq_transcribe(GROQ_KEY, audio_bytes)
+        transcript, err = llm.groq_transcribe(GROQ_KEY, audio_bytes, groq_models("whisper"))
         if err or not transcript:
             return llm.LLMResult(False, attempts=[err or "groq whisper: empty transcript"],
                                  error="The voice note could not be transcribed.")
         question = transcript + (f"\n(They also typed: {masked})" if masked else "")
-    msgs = [{"role": r, "content": t} for r, t in history]
+    msgs = [{"role": r, "content": t} for r, t in history[-GROQ_HISTORY_TURNS:]]
     if image_bytes:
         b64 = base64.b64encode(image_bytes).decode()
         msgs.append({"role": "user", "content": [
             {"type": "text", "text": prompts.DIAGNOSIS_TASK.format(note=masked or "(no note)") + hint},
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}]})
-        models, entries = llm.GROQ_VISION_MODELS, [kb.KB_BY_ID[i] for i in PHOTO_KB]
+        models, entries = groq_models("vision"), [kb.KB_BY_ID[i] for i in PHOTO_KB]
+        if not models:
+            return llm.LLMResult(False, attempts=["groq: no image-capable model is offered on the free tier today"],
+                                 error="Photo checks are not available on the backup AI right now.")
     else:
         msgs.append({"role": "user", "content": question + hint})
-        models, entries = GROQ_MODELS, kb.select_for(question, stage.key)
+        models, entries = groq_models("text"), kb.select_for(question, stage.key, limit=GROQ_KB_ENTRIES)
     res = llm.groq_generate(GROQ_KEY, models, system_prompt(entries), msgs, schema)
     if res.ok and transcript and not res.data.get("transcript"):
         res.data["transcript"] = transcript
@@ -740,6 +757,9 @@ with st.sidebar:
         st.markdown("Gemini API key: **" + ("found" if API_KEY else "not found") + "**"
                     + (" (blocked by Google this session)" if ss.get("gemini_blocked") else "")
                     + "  \nGroq API key (backup): **" + ("found" if GROQ_KEY else "not found") + "**")
+        if GROQ_KEY:
+            st.caption("Groq models in use: " + ", ".join(groq_models("text"))
+                       + ". Photos: " + (", ".join(groq_models("vision")) or "none available"))
         if s["intents"]:
             st.markdown("Topics detected:\n" + "\n".join(
                 f"- {INTENT_LABELS.get(k, k)}: {v}" for k, v in s["intents"].most_common()))
