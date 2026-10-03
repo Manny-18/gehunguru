@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-PROMPT_VERSION = "v1.6"
+PROMPT_VERSION = "v1.7"
 
 LANGUAGE_INSTRUCTIONS = {
     "Auto": ("Reply in the same language and script the farmer used (English; Hindi in Devanagari; Punjabi in "
@@ -25,6 +25,45 @@ LANGUAGE_HINTS = {
     "Punjabi": "Reply only in Punjabi, in Gurmukhi script.",
     "Hinglish": "Reply only in Hinglish (Hindi written in Roman script).",
 }
+
+
+import re
+
+# Common Hindi words written in Roman script. Used only to tell Hinglish from English in Auto mode.
+_HINGLISH_WORDS = {
+    "hai", "hain", "kab", "kya", "kaise", "kaisa", "kyun", "kyon", "mein", "ka", "ki", "ke", "ko", "se", "nahi",
+    "nahin", "karna", "karun", "karoon", "karein", "kare", "paani", "pani", "lagana", "lagaun", "lagayein", "daalun",
+    "dalun", "dalna", "daalna", "khad", "fasal", "beej", "aur", "bhi", "raha", "rahi", "rahe", "theek", "thik",
+    "kitna", "kitni", "kaunsi", "konsi", "chahiye", "dawai", "dawa", "kheti", "gehu", "gehun", "mera", "meri",
+    "mujhe", "aap", "pehla", "pehli", "abhi", "kal", "aaj", "barish", "baarish", "lag", "dikh", "kuch", "bataiye",
+}
+
+
+def detect_language(text: str) -> str:
+    """Decide the reply language from the farmer's own words (Auto mode).
+
+    Added after live testing: in Auto mode an English question got an answer that switched to Hindi
+    halfway, because the model was left to guess. Code now decides; the model is told exactly.
+    """
+    t = text or ""
+    if re.search(r"[\u0A00-\u0A7F]", t):
+        return "Punjabi"
+    if re.search(r"[\u0900-\u097F]", t):
+        return "Hindi"
+    words = re.findall(r"[a-z]+", t.lower())
+    if not words:
+        return "Auto"
+    hits = sum(w in _HINGLISH_WORDS for w in words)
+    if hits >= 2 or (hits == 1 and len(words) <= 4):
+        return "Hinglish"
+    return "English"
+
+
+def effective_language(setting: str, text: str) -> str:
+    """The language for this turn: the farmer's setting, or (in Auto) the language of their message."""
+    if setting != "Auto":
+        return setting
+    return detect_language(text)
 
 
 def language_hint(lang: str) -> str:
