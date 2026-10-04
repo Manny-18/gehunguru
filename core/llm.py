@@ -239,6 +239,22 @@ def redact_doses(answer: str) -> tuple[str, bool]:
     return "".join(out), changed
 
 
+# Phrases that mark a question addressed TO the farmer ("Do you want...?", "Kya aapko...?"). The follow-up
+# button sends its text as the farmer's own message, so such text must never become a button.
+# Added after live testing: the prompt rule alone still produced "Kya aapko next irrigation ka exact samay
+# chahiye?" in Hinglish, which the farmer then sent back to the bot.
+_ASKS_FARMER = re.compile(
+    r"\b(do you|did you|are you|have you|would you like|can you check|is your|are your|your (field|crop|soil))\b|"
+    r"\bkya (aapko|aapne|aap ne|aapke|aapki|tumhe|tumne)\b|\baapk[eio] (khet|fasal|mitti)\b|"
+    r"क्या आपको|क्या आपने|आपके खेत|आपकी फसल|ਕੀ ਤੁਹਾਨੂੰ|ਤੁਹਾਨੂੰ|ਕੀ ਤੁਸੀਂ|ਤੁਹਾਡੇ ਖੇਤ|ਤੁਹਾਡੀ ਫਸਲ",
+    re.IGNORECASE,
+)
+
+
+def follow_up_is_farmer_voice(text: str) -> bool:
+    return bool(text) and not _ASKS_FARMER.search(text)
+
+
 def normalise_chat(data: dict) -> dict:
     out = {
         "answer": str(data.get("answer") or "").strip(),
@@ -266,6 +282,8 @@ def normalise_chat(data: dict) -> dict:
     if out["confidence"] == "low" and out["intent"] not in ("out_of_scope", "adversarial", "greeting"):
         out["needs_human"] = True
         out["handoff_reason"] = out["handoff_reason"] or "The assistant is not confident about this answer."
+    if not follow_up_is_farmer_voice(out["follow_up"]):
+        out["follow_up"] = ""  # a question to the farmer belongs in the answer, not on the button
     out["answer"], out["dose_redacted"] = redact_doses(out["answer"])
     return out
 
